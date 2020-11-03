@@ -4,6 +4,7 @@
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
+    using System.Reflection.Metadata.Ecma335;
 
     public class App
     {
@@ -16,36 +17,37 @@
             this.salesPromotionRepository = salesPromotionRepository;
         }
 
+        //to do: imporve performance 
         public string BestCharge(List<string> inputs)
         {
-            var avaliableItem = itemRepository.FindAll();
-            var avaliablePromotion = salesPromotionRepository.FindAll();
+            var avaliableItems = itemRepository.FindAll();
+            var avaliablePromotions = salesPromotionRepository.FindAll();
             var itemInShoppingCart = new List<(Item item, double itemPrice)>();
-            //Dictionary<string, (Item item, int quantity)> shoppingCart = new Dictionary<string, (Item item, int quantity)>();
             var receipt = "============= Order details =============\n";
             double totalPrice = 0;
 
             foreach (var itemString in inputs)
             {
-                (string id, int quantity) itemInfo = Deserialize(itemString);
-                var item = avaliableItem.Where(i => i.Id == itemInfo.id).FirstOrDefault();
-                var itemPrice = item.Price * itemInfo.quantity;
-                receipt = receipt + item.Name + " x " + itemInfo.quantity + " = " + itemPrice + " yuan\n";
+                var itemInfo = DeserializeInputStringToIdAndQuantity(itemString);
+                if (itemInfo == null) continue;
+
+                var item = avaliableItems.Where(i => i.Id == itemInfo.Value.id).FirstOrDefault();
+                var itemPrice = item.Price * itemInfo.Value.quantity;
+
                 itemInShoppingCart.Add((item, itemPrice));
                 totalPrice += itemPrice;
+                receipt = receipt + $"{item.Name} x {itemInfo.Value.quantity} = {itemPrice} yuan\n";
             }
 
-            var validPromotion = GetValidPromotion(itemInShoppingCart, avaliablePromotion);
+            var validPromotion = GetValidPromotion(itemInShoppingCart, avaliablePromotions);
 
-           
             if (validPromotion.Count != 0)
             {
                 receipt = receipt + "-----------------------------------\n";
-                var bestDiscount = GetBestDiscount(itemInShoppingCart, avaliablePromotion);
+                var bestDiscount = GetBestDiscount(itemInShoppingCart, avaliablePromotions);
                 receipt = receipt +
-                    "Promotion used:\n" +
-                    $"Half price for certain dishes ({bestDiscount.discountItems}), saving {bestDiscount.bestDiscount} yuan\n";
-                totalPrice = totalPrice - bestDiscount.bestDiscount;
+                      $"Promotion used:\n{bestDiscount.promotionName} ({bestDiscount.discountItems}), saving {bestDiscount.totalDiscount} yuan\n";
+                totalPrice = totalPrice - bestDiscount.totalDiscount;
             }
 
             receipt = receipt +
@@ -55,71 +57,124 @@
 
             return receipt;
         }
-        //to do: add validation 
-        private (string id, int quantity) Deserialize(string input)
+
+        private (string id, int quantity)? DeserializeInputStringToIdAndQuantity(string input)
         {
-            var itemInfo = input.Split(" x ");
-            int quantity = int.Parse(itemInfo[1]);
-            return (itemInfo[0], quantity);
+            if (String.IsNullOrEmpty(input))
+            {
+                return null;
+            }
+            try
+            {
+                var itemInfo = input.Split(" x ");
+                var id = itemInfo[0];
+                int quantity = int.Parse(itemInfo[1]);
+                return (id, quantity);
+            }
+            catch
+            {
+                return null;
+            }
+
         }
 
+        //Not sure if I understand it correctly. 
+        //Originally I think the valid promotion is when all promotion items are included in input items. 
+        //This version is: the valid promotion is when the at least one promotions are include in input items. 
         private List<SalesPromotion> GetValidPromotion(List<(Item item, double price)> items, List<SalesPromotion> promotions)
         {
-            List<SalesPromotion> itemWithPromotion = new List<SalesPromotion>();
+            List<SalesPromotion> validPromotion = new List<SalesPromotion>();
 
             foreach (var promotion in promotions)
             {
-                bool existsCheck = promotion.RelatedItems.All(x => items.Any(y => x == y.item.Id));
+                bool existsCheck = promotion.RelatedItems.Any(p => items.Any(i => p == i.item.Id));
                 if (existsCheck)
                 {
-                    itemWithPromotion.Add(promotion);
+                    validPromotion.Add(promotion);
                 }
             }
-            return itemWithPromotion;
+            return validPromotion;
         }
 
-        private (double bestDiscount, string discountItems) GetBestDiscount(List<(Item item, double price)> items, List<SalesPromotion> validPromotions)
+        private (double totalDiscount, string discountItems, string promotionName) GetBestDiscount(List<(Item item, double price)> items, List<SalesPromotion> validPromotions)
         {
             double bestDiscount = 0;
             var bestDiscountItems = "";
+            var bestPromotion = "";
+            
             foreach (var promotion in validPromotions)
             {
                 double discountPrice = 0;
                 var discountItems = "";
                 foreach (var id in promotion.RelatedItems)
                 {
-                    var discountItem = items.Where(i => i.item.Id == id);
-                    
-                    if (discountItem.Any())
+                    var item = items.Where(i => i.item.Id == id);
+                    if (item.Any())
                     {
-                        discountItems = discountItems + $" {discountItem.FirstOrDefault().item.Name},";
-                        discountPrice += discountItem.FirstOrDefault().price / 2;
+                        discountItems = discountItems + $" {item.FirstOrDefault().item.Name},";
+                        discountPrice += item.FirstOrDefault().price / 2;
                     }
                 }
                 if (discountPrice > bestDiscount)
                 {
                     bestDiscount = discountPrice;
                     bestDiscountItems = discountItems;
+                    bestPromotion = promotion.DisplayName;
                 }
             }
-
-            return (bestDiscount, bestDiscountItems.Substring(1, bestDiscountItems.Length - 2));
+            return (bestDiscount, bestDiscountItems.Substring(1, bestDiscountItems.Length - 2), bestPromotion);
         }
-    }
 
-    public class ItemRepository : IItemRepository
-    {
-        public List<Item> FindAll()
-        {
-            throw new NotImplementedException();
-        }
-    }
 
-    public class SalesPromotionRepository : ISalesPromotionRepository
-    {
-        List<SalesPromotion> ISalesPromotionRepository.FindAll()
-        {
-            throw new NotImplementedException();
-        }
+        ////to do: imporve performance 
+        //public string BestCharge(List<string> inputs)
+        //{
+        //    var avaliableItems = itemRepository.FindAll();
+        //    var avaliablePromotions = salesPromotionRepository.FindAll();
+        //    //var itemInShoppingCart = new List<(Item item, double itemPrice)>();
+        //    var receipt = "============= Order details =============\n";
+        //    double totalPrice = 0;
+
+        //    Dictionary<string, (Item item, double itemPrice)> itemInShoppingCart = new Dictionary<string, (Item item, double itemPrice)>();
+        //    foreach (var itemString in inputs)
+        //    { 
+        //        var itemInfo = DeserializeInputStringToIdAndQuantity(itemString);
+        //        if (itemInfo == null) continue;
+
+        //        var item = avaliableItems.Where(i => i.Id == itemInfo.Value.id).FirstOrDefault();
+        //        var itemPrice = item.Price * itemInfo.Value.quantity;
+
+
+        //        if (!itemInShoppingCart.ContainsKey(item.Id))
+        //        {
+        //            itemInShoppingCart.Add(item.Id, (item, itemPrice));
+        //        }
+        //        else
+        //        {
+        //            itemInShoppingCart[item.Id] = (item, itemPrice + itemInShoppingCart[item.Id].itemPrice);
+        //        }
+        //        totalPrice += itemPrice;
+        //        receipt = receipt + $"{item.Name} x {itemInfo.Value.quantity} = {itemPrice} yuan\n";
+        //    }
+
+        //    var validPromotion = GetValidPromotion(itemInShoppingCart, avaliablePromotions);
+
+        //    if (validPromotion.Count != 0)
+        //    {
+        //        receipt = receipt + "-----------------------------------\n";
+        //        var bestDiscount = GetBestDiscount(itemInShoppingCart, avaliablePromotions);
+        //        receipt = receipt +
+        //              $"Promotion used:\n {bestDiscount.} ({bestDiscount.discountItems}), saving {bestDiscount.bestDiscount} yuan\n";
+        //        totalPrice = totalPrice - bestDiscount.bestDiscount;
+        //    }
+
+        //    receipt = receipt +
+        //            "-----------------------------------\n" +
+        //            $"Total：{totalPrice} yuan\n" +
+        //            "===================================";
+
+        //    return receipt;
+        //}
+
     }
 }
