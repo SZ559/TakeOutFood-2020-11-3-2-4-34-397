@@ -99,20 +99,30 @@
         private (double totalDiscount, string discountItems, string promotionName) GetBestDiscount(List<(Item item, double price)> items, List<SalesPromotion> validPromotions)
         {
             double bestDiscount = 0;
-            var bestDiscountItems = "";
+            var bestDiscountItems = new List<Item>();
             var bestPromotion = "";
             
             foreach (var promotion in validPromotions)
             {
                 double discountPrice = 0;
-                var discountItems = "";
+                var discountItems = new List<Item>();
+                Func<double, double> discountFunc;
+
+                switch(promotion.Type){
+                    case "50%_DISCOUNT_ON_SPECIFIED_ITEMS":
+                        discountFunc = (totalprice) => totalprice / 2;
+                        break;
+                    default:
+                        continue;
+                }
+
                 foreach (var id in promotion.RelatedItems)
                 {
                     var item = items.Where(i => i.item.Id == id);
                     if (item.Any())
                     {
-                        discountItems = discountItems + $" {item.FirstOrDefault().item.Name},";
-                        discountPrice += item.FirstOrDefault().price / 2;
+                        discountItems.Add(item.FirstOrDefault().item);
+                        discountPrice += discountFunc(item.FirstOrDefault().price);
                     }
                 }
                 if (discountPrice > bestDiscount)
@@ -122,9 +132,22 @@
                     bestPromotion = promotion.DisplayName;
                 }
             }
-            return (bestDiscount, bestDiscountItems.Substring(1, bestDiscountItems.Length - 2), bestPromotion);
+            return (bestDiscount, ItemsToString(bestDiscountItems), bestPromotion);
         }
 
+        private string ItemsToString(List<Item> items)
+        {
+            string itemsString = "";
+            if (items.Count < 1)
+            {
+                return itemsString;
+            }
+            foreach (var item in items)
+            {
+                itemsString += $"{item.Name}, ";
+            }
+            return itemsString[0..^2];
+        }
 
         ////to do: imporve performance 
         //public string BestCharge(List<string> inputs)
